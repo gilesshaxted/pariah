@@ -1,63 +1,62 @@
 // events/guildMemberUpdate.js
-import { Events, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from 'discord.js';
+import { Events, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { db } from '../utils/firebase.js';
 import { getMemberLevel } from '../utils/modUtils.js';
+
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'the-pariah';
 
 export const name = Events.GuildMemberUpdate;
 
 export async function execute(oldMember, newMember) {
-  // 1. Immunity Check: Moderators and Admins are untouched
+  // 1. Immunity Check
   const level = await getMemberLevel(newMember);
   if (level > 0) return;
 
-  // Role names to watch for (adjust these to match your server's linked role names)
-  const platformRoles = ['Xbox', 'PlayStation', 'Steam'];
-  
-  const addedRoles = newMember.roles.cache.filter(role => !oldMember.roles.cache.has(role.id));
-  const platformRoleAdded = addedRoles.find(role => platformRoles.includes(role.name));
+  try {
+    // 2. Fetch Guild Config to see which roles are mapped
+    const doc = await db.collection('artifacts').doc(appId)
+      .collection('public').doc('data')
+      .collection('guild_configs').doc(newMember.guild.id).get();
 
-  if (platformRoleAdded) {
-    console.log(`[LINKED ROLES] ${newMember.user.tag} linked ${platformRoleAdded.name}`);
+    if (!doc.exists) return;
+    const config = doc.data();
 
-    // Find all platform roles they currently have
-    const currentPlatforms = newMember.roles.cache
-      .filter(role => platformRoles.includes(role.name))
-      .map(role => role.name.toLowerCase().replace('playstation', 'ps'));
+    // The IDs of the roles we are watching
+    const xboxId = config.xboxRoleId;
+    const psId = config.psRoleId;
+    const steamId = config.steamRoleId;
+    const platformRoleIds = [xboxId, psId, steamId].filter(id => id);
 
-    try {
-      // 2. Fetch tags from Firestore
+    // Check if any of the ADDED roles match our mapped platform roles
+    const addedRoles = newMember.roles.cache.filter(role => !oldMember.roles.cache.has(role.id));
+    const linkedRoleFound = addedRoles.find(role => platformRoleIds.includes(role.id));
+
+    if (linkedRoleFound) {
+      console.log(`[LINKED ROLES] ${newMember.user.tag} verified a platform account.`);
+
+      // 3. Logic to determine which platform was just added
+      let platformLabel = "Unknown";
+      if (linkedRoleFound.id === xboxId) platformLabel = "Xbox";
+      if (linkedRoleFound.id === psId) platformLabel = "PlayStation";
+      if (linkedRoleFound.id === steamId) platformLabel = "Steam";
+
+      // 4. Nickname Synchronization
       const playerDoc = await db.collection('pariah_players').doc(newMember.id).get();
-      const playerData = playerDoc.exists ? playerDoc.data() : null;
+      if (playerDoc.exists) {
+        const gamertag = playerDoc.data().gamertag;
+        if (gamertag) {
+          await newMember.setNickname(gamertag).catch(e => console.log("Nickname failed (Hierarchy):", e.message));
+          
+          const embed = new EmbedBuilder()
+            .setTitle('Identity Verified')
+            .setDescription(`✅ I've recognized your **${platformLabel}** link, <@${newMember.id}>. Your server nickname has been updated to match your registered tag: \`${gamertag}\`.`)
+            .setColor(0x00FF00);
 
-      if (currentPlatforms.length === 1) {
-        // Simple case: Just one platform, change nickname automatically
-        const platform = currentPlatforms[0];
-        const tag = playerData?.[`${platform}_tag`] || playerData?.gamertag;
-
-        if (tag) {
-          await newMember.setNickname(tag).catch(e => console.error("Nick change failed:", e));
-          await newMember.send(`✅ Thank you for linking your **${platform.toUpperCase()}** account. I've updated your nickname to match your tag: \`${tag}\`. Welcome to the frequency.`);
+          await newMember.send({ embeds: [embed] }).catch(() => null);
         }
-      } else if (currentPlatforms.length > 1) {
-        // Complex case: Multiple platforms, ask for a "Main"
-        const row = new ActionRowBuilder();
-        
-        currentPlatforms.forEach(p => {
-          row.addComponents(
-            new ButtonBuilder()
-              .setCustomId(`main_acc_${p}`)
-              .setLabel(p.toUpperCase())
-              .setStyle(ButtonStyle.Primary)
-          );
-        });
-
-        await newMember.send({
-          content: `Thank you for linking multiple accounts, survivor. Which one is your **main** playing account for Deadside? I'll use it for your server nickname.`,
-          components: [row]
-        }).catch(() => null); // User might have DMs closed
       }
-    } catch (err) {
-      console.error('[LINKED ROLE SYNC ERROR]', err);
     }
+  } catch (err) {
+    console.error('[GUILD MEMBER UPDATE ERROR]', err);
   }
 }
