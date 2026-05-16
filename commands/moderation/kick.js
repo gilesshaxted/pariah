@@ -10,18 +10,20 @@ export const data = new SlashCommandBuilder()
   .setDefaultMemberPermissions(PermissionFlagsBits.KickMembers);
 
 export async function execute(interaction) {
+  // 1. Defer immediately
+  await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
+
   const target = interaction.options.getUser('target');
   const targetMember = interaction.options.getMember('target');
   const reason = interaction.options.getString('reason');
 
-  if (!targetMember) return interaction.reply({ content: "I can't kick a ghost.", flags: [MessageFlags.Ephemeral] });
+  if (!targetMember) return interaction.editReply({ content: "I can't kick a ghost." });
 
   // --- HIERARCHY CHECK ---
   const authorized = await canModerate(interaction.member, targetMember);
   if (!authorized) {
-    return await interaction.reply({ 
-      content: "You lack the authority to discipline this individual. Check your station, darling.", 
-      flags: [MessageFlags.Ephemeral] 
+    return await interaction.editReply({ 
+      content: "You lack the authority to discipline this individual. Check your station, darling." 
     });
   }
 
@@ -36,8 +38,9 @@ export async function execute(interaction) {
       reason: reason
     });
 
-    await interaction.reply({ content: `✅ **Case #${caseId}**: ${target.tag} has been removed.`, flags: [MessageFlags.Ephemeral] });
+    await interaction.editReply({ content: `✅ **Case #${caseId}**: ${target.tag} has been removed from the wasteland.` });
   } catch (err) {
-    await interaction.reply({ content: "This person is rooted too deep for me to move.", flags: [MessageFlags.Ephemeral] });
+    console.error(err);
+    await interaction.editReply({ content: "This person is rooted too deep for me to move. Check my permissions." });
   }
 }
