@@ -1,5 +1,5 @@
 // events/guildMemberUpdate.js
-import { Events, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import { Events, EmbedBuilder } from 'discord.js';
 import { db } from '../utils/firebase.js';
 import { getMemberLevel } from '../utils/modUtils.js';
 
@@ -8,55 +8,82 @@ const appId = typeof __app_id !== 'undefined' ? __app_id : 'the-pariah';
 export const name = Events.GuildMemberUpdate;
 
 export async function execute(oldMember, newMember) {
+  console.log(`[DEBUG] Role update detected for: ${newMember.user.tag}`);
+
   // 1. Immunity Check
   const level = await getMemberLevel(newMember);
-  if (level > 0) return;
+  if (level > 0) {
+    console.log(`[DEBUG] Member ${newMember.user.tag} is Staff (Level ${level}). Skipping nickname sync.`);
+    return;
+  }
 
   try {
-    // 2. Fetch Guild Config to see which roles are mapped
+    // 2. Fetch Guild Config
     const doc = await db.collection('artifacts').doc(appId)
       .collection('public').doc('data')
       .collection('guild_configs').doc(newMember.guild.id).get();
 
-    if (!doc.exists) return;
-    const config = doc.data();
+    if (!doc.exists) {
+      console.log(`[DEBUG] No guild config found for ${newMember.guild.id}. Run /setup.`);
+      return;
+    }
 
-    // The IDs of the roles we are watching
+    const config = doc.data();
     const xboxId = config.xboxRoleId;
     const psId = config.psRoleId;
     const steamId = config.steamRoleId;
     const platformRoleIds = [xboxId, psId, steamId].filter(id => id);
 
-    // Check if any of the ADDED roles match our mapped platform roles
+    console.log(`[DEBUG] Mapped IDs in DB: Xbox(${xboxId}), PS(${psId}), Steam(${steamId})`);
+
+    // 3. Compare Roles
     const addedRoles = newMember.roles.cache.filter(role => !oldMember.roles.cache.has(role.id));
+    console.log(`[DEBUG] Roles added in this update: ${addedRoles.map(r => r.name).join(', ') || 'None'}`);
+
     const linkedRoleFound = addedRoles.find(role => platformRoleIds.includes(role.id));
 
-    if (linkedRoleFound) {
-      console.log(`[LINKED ROLES] ${newMember.user.tag} verified a platform account.`);
+    if (!linkedRoleFound) {
+      console.log(`[DEBUG] No "Linked Role" detected in the added roles.`);
+      return;
+    }
 
-      // 3. Logic to determine which platform was just added
-      let platformLabel = "Unknown";
-      if (linkedRoleFound.id === xboxId) platformLabel = "Xbox";
-      if (linkedRoleFound.id === psId) platformLabel = "PlayStation";
-      if (linkedRoleFound.id === steamId) platformLabel = "Steam";
+    console.log(`[DEBUG] Match found! Linked Role ID: ${linkedRoleFound.id} (${linkedRoleFound.name})`);
 
-      // 4. Nickname Synchronization
-      const playerDoc = await db.collection('pariah_players').doc(newMember.id).get();
-      if (playerDoc.exists) {
-        const gamertag = playerDoc.data().gamertag;
-        if (gamertag) {
-          await newMember.setNickname(gamertag).catch(e => console.log("Nickname failed (Hierarchy):", e.message));
-          
-          const embed = new EmbedBuilder()
-            .setTitle('Identity Verified')
-            .setDescription(`✅ I've recognized your **${platformLabel}** link, <@${newMember.id}>. Your server nickname has been updated to match your registered tag: \`${gamertag}\`.`)
-            .setColor(0x00FF00);
+    // 4. Nickname Sync
+    const playerDoc = await db.collection('pariah_players').doc(newMember.id).get();
+    if (!playerDoc.exists) {
+      console.log(`[DEBUG] No registration found in Firestore for UID: ${newMember.id}. They need to run /register.`);
+      return;
+    }
 
-          await newMember.send({ embeds: [embed] }).catch(() => null);
-        }
+    const gamertag = playerDoc.data().gamertag;
+    if (!gamertag) {
+      console.log(`[DEBUG] Registration exists but no 'gamertag' field found for ${newMember.user.tag}.`);
+      return;
+    }
+
+    console.log(`[DEBUG] Attempting nickname change: ${newMember.nickname || newMember.user.username} -> ${gamertag}`);
+
+    try {
+      await newMember.setNickname(gamertag);
+      console.log(`[DEBUG] Nickname change SUCCESS.`);
+
+      // Optional: Send confirmation DM
+      const embed = new EmbedBuilder()
+        .setTitle('Identity Verified')
+        .setDescription(`✅ I've recognized your platform link, <@${newMember.id}>. Your server nickname has been updated to match your registered tag: \`${gamertag}\`.`)
+        .setColor(0x00FF00);
+
+      await newMember.send({ embeds: [embed] }).catch(() => console.log(`[DEBUG] Could not send DM (DMs closed).`));
+
+    } catch (error) {
+      console.error(`[DEBUG] Nickname change FAILED:`, error.message);
+      if (error.message.includes('Missing Permissions')) {
+        console.log(`[CRITICAL] I cannot change this user's name. Check the Role Hierarchy. My role must be HIGHER than theirs.`);
       }
     }
+
   } catch (err) {
-    console.error('[GUILD MEMBER UPDATE ERROR]', err);
+    console.error('[DEBUG] Global Error in guildMemberUpdate:', err);
   }
 }
