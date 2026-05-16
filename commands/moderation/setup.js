@@ -1,43 +1,65 @@
 // commands/moderation/setup.js
-import { SlashCommandBuilder, PermissionFlagsBits, ChannelType } from 'discord.js';
+import { 
+  SlashCommandBuilder, 
+  PermissionFlagsBits, 
+  EmbedBuilder, 
+  ActionRowBuilder, 
+  ButtonBuilder, 
+  ButtonStyle 
+} from 'discord.js';
 import { db } from '../../utils/firebase.js';
 
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'the-pariah';
 
 export const data = new SlashCommandBuilder()
   .setName('setup')
-  .setDescription('Configure The Pariah for your server')
-  .addChannelOption(option => 
-    option.setName('log_channel')
-      .setDescription('Where should I post moderation logs?')
-      .addChannelTypes(ChannelType.GuildText)
-      .setRequired(true))
-  .addRoleOption(option => 
-    option.setName('mod_role')
-      .setDescription('Which role defines your moderators?')
-      .setRequired(true))
+  .setDescription('Open the Pariah Configuration Dashboard')
   .setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
 
+/**
+ * Helper to build the dashboard embed
+ */
+export async function getSetupEmbed(guild) {
+  const doc = await db.collection('artifacts').doc(appId)
+    .collection('public').doc('data')
+    .collection('guild_configs').doc(guild.id).get();
+
+  const config = doc.exists ? doc.data() : {};
+  
+  const logChannel = config.logChannelId ? `<#${config.logChannelId}>` : '*Not Set*';
+  const modRoles = config.modRoleIds?.length > 0 
+    ? config.modRoleIds.map(id => `<@&${id}>`).join(', ') 
+    : '*Not Set*';
+
+  return new EmbedBuilder()
+    .setTitle('🛠️ The Pariah: Configuration Dashboard')
+    .setDescription('Manage your server settings below. Use the buttons to adjust channels and permissions.')
+    .addFields(
+      { name: '📡 Log Channel', value: logChannel, inline: true },
+      { name: '🛡️ Moderator Roles', value: modRoles, inline: true }
+    )
+    .setColor(0x2b2d31)
+    .setFooter({ text: 'Henge Digital Infrastructure' })
+    .setTimestamp();
+}
+
 export async function execute(interaction) {
-  const logChannel = interaction.options.getChannel('log_channel');
-  const modRole = interaction.options.getRole('mod_role');
+  const embed = await getSetupEmbed(interaction.guild);
 
-  try {
-    await db.collection('artifacts').doc(appId)
-      .collection('public').doc('data')
-      .collection('guild_configs').doc(interaction.guild.id).set({
-        logChannelId: logChannel.id,
-        modRoleId: modRole.id,
-        setupBy: interaction.user.id,
-        updatedAt: new Date()
-      }, { merge: true });
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('setup_btn_channels')
+      .setLabel('Set Log Channel')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId('setup_btn_roles')
+      .setLabel('Set Mod Roles')
+      .setStyle(ButtonStyle.Secondary)
+  );
 
-    await interaction.reply({ 
-      content: `✅ **Setup Complete.** Logs will go to <#${logChannel.id}> and moderators are defined by <@&${modRole.id}>.`, 
-      ephemeral: true 
-    });
-  } catch (error) {
-    console.error('[SETUP ERROR]', error);
-    await interaction.reply({ content: "Failed to save configuration. Check logs, darling.", ephemeral: true });
-  }
+  await interaction.reply({ 
+    embeds: [embed], 
+    components: [row], 
+    ephemeral: true 
+  });
 }
