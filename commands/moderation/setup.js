@@ -17,7 +17,7 @@ export const data = new SlashCommandBuilder()
   .setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
 
 /**
- * Helper to build the dashboard embed
+ * Helper to build the dashboard embed with all current settings
  */
 export async function getSetupEmbed(guild) {
   const doc = await db.collection('artifacts').doc(appId)
@@ -27,16 +27,18 @@ export async function getSetupEmbed(guild) {
   const config = doc.exists ? doc.data() : {};
   
   const logChannel = config.logChannelId ? `<#${config.logChannelId}>` : '*Not Set*';
+  const welcomeChannel = config.welcomeChannelId ? `<#${config.welcomeChannelId}>` : '*Not Set*';
   const modRoles = config.modRoleIds?.length > 0 
     ? config.modRoleIds.map(id => `<@&${id}>`).join(', ') 
     : '*Not Set*';
 
   return new EmbedBuilder()
     .setTitle('🛠️ The Pariah: Configuration Dashboard')
-    .setDescription('Manage your server settings below. Use the buttons to adjust channels and permissions.')
+    .setDescription('Manage your server settings below. Use the buttons to adjust your channels and roles.')
     .addFields(
       { name: '📡 Log Channel', value: logChannel, inline: true },
-      { name: '🛡️ Moderator Roles', value: modRoles, inline: true }
+      { name: '👋 Welcome Channel', value: welcomeChannel, inline: true },
+      { name: '🛡️ Moderator Roles', value: modRoles, inline: false }
     )
     .setColor(0x2b2d31)
     .setFooter({ text: 'Henge Digital Infrastructure' })
@@ -51,6 +53,10 @@ export async function execute(interaction) {
       .setCustomId('setup_btn_channels')
       .setLabel('Set Log Channel')
       .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId('setup_btn_welcome')
+      .setLabel('Set Welcome Channel')
+      .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
       .setCustomId('setup_btn_roles')
       .setLabel('Set Mod Roles')
