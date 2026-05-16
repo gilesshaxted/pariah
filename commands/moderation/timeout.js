@@ -1,6 +1,6 @@
 // commands/moderation/timeout.js
 import { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
-import { logAction } from '../../utils/modUtils.js';
+import { logAction, canModerate } from '../../utils/modUtils.js';
 
 export const data = new SlashCommandBuilder()
   .setName('timeout')
@@ -21,23 +21,38 @@ export const data = new SlashCommandBuilder()
   .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers);
 
 export async function execute(interaction) {
-  const target = interaction.options.getMember('target');
+  const target = interaction.options.getUser('target');
+  const targetMember = interaction.options.getMember('target');
   const duration = parseInt(interaction.options.getString('duration'));
   const reason = interaction.options.getString('reason');
 
-  if (!target) return interaction.reply({ content: "That user isn't in this wasteland, darling.", flags: [MessageFlags.Ephemeral] });
-  if (!target.moderatable) return interaction.reply({ content: "I lack the authority to silence this individual.", flags: [MessageFlags.Ephemeral] });
+  if (!targetMember) return interaction.reply({ content: "That user isn't in this wasteland, darling.", flags: [MessageFlags.Ephemeral] });
+  if (target.bot) return interaction.reply({ content: "You cannot silence a machine.", flags: [MessageFlags.Ephemeral] });
 
-  await target.timeout(duration, reason);
+  // --- HIERARCHY CHECK ---
+  const authorized = await canModerate(interaction.member, targetMember);
+  if (!authorized) {
+    return await interaction.reply({ 
+      content: "You lack the authority to discipline this individual. Check your station, darling.", 
+      flags: [MessageFlags.Ephemeral] 
+    });
+  }
 
-  const caseId = await logAction(interaction.client, {
-    guild: interaction.guild,
-    target: target.user,
-    moderator: interaction.user,
-    type: 'TIMEOUT',
-    reason: reason,
-    duration: interaction.options.get('duration').name
-  });
+  try {
+    await targetMember.timeout(duration, reason);
 
-  await interaction.reply({ content: `✅ **Case #${caseId}**: ${target.user.tag} has been silenced.`, flags: [MessageFlags.Ephemeral] });
+    const caseId = await logAction(interaction.client, {
+      guild: interaction.guild,
+      target: target,
+      moderator: interaction.user,
+      type: 'TIMEOUT',
+      reason: reason,
+      duration: interaction.options.get('duration').name
+    });
+
+    await interaction.reply({ content: `✅ **Case #${caseId}**: ${target.tag} has been silenced.`, flags: [MessageFlags.Ephemeral] });
+  } catch (err) {
+    console.error(err);
+    await interaction.reply({ content: "I couldn't apply the timeout. Check my permissions.", flags: [MessageFlags.Ephemeral] });
+  }
 }
