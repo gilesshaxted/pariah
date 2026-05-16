@@ -1,6 +1,6 @@
 // commands/moderation/kick.js
 import { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
-import { logAction } from '../../utils/modUtils.js';
+import { logAction, canModerate } from '../../utils/modUtils.js';
 
 export const data = new SlashCommandBuilder()
   .setName('kick')
@@ -10,21 +10,34 @@ export const data = new SlashCommandBuilder()
   .setDefaultMemberPermissions(PermissionFlagsBits.KickMembers);
 
 export async function execute(interaction) {
-  const target = interaction.options.getMember('target');
+  const target = interaction.options.getUser('target');
+  const targetMember = interaction.options.getMember('target');
   const reason = interaction.options.getString('reason');
 
-  if (!target) return interaction.reply({ content: "I can't kick a ghost.", flags: [MessageFlags.Ephemeral] });
-  if (!target.kickable) return interaction.reply({ content: "This person is rooted too deep for me to move.", flags: [MessageFlags.Ephemeral] });
+  if (!targetMember) return interaction.reply({ content: "I can't kick a ghost.", flags: [MessageFlags.Ephemeral] });
 
-  await target.kick(reason);
+  // --- HIERARCHY CHECK ---
+  const authorized = await canModerate(interaction.member, targetMember);
+  if (!authorized) {
+    return await interaction.reply({ 
+      content: "You lack the authority to discipline this individual. Check your station, darling.", 
+      flags: [MessageFlags.Ephemeral] 
+    });
+  }
 
-  const caseId = await logAction(interaction.client, {
-    guild: interaction.guild,
-    target: target.user,
-    moderator: interaction.user,
-    type: 'KICK',
-    reason: reason
-  });
+  try {
+    await targetMember.kick(reason);
 
-  await interaction.reply({ content: `✅ **Case #${caseId}**: ${target.user.tag} has been removed.`, flags: [MessageFlags.Ephemeral] });
+    const caseId = await logAction(interaction.client, {
+      guild: interaction.guild,
+      target: target,
+      moderator: interaction.user,
+      type: 'KICK',
+      reason: reason
+    });
+
+    await interaction.reply({ content: `✅ **Case #${caseId}**: ${target.tag} has been removed.`, flags: [MessageFlags.Ephemeral] });
+  } catch (err) {
+    await interaction.reply({ content: "This person is rooted too deep for me to move.", flags: [MessageFlags.Ephemeral] });
+  }
 }
