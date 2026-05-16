@@ -21,20 +21,22 @@ export const data = new SlashCommandBuilder()
   .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers);
 
 export async function execute(interaction) {
+  // 1. Defer immediately to prevent "Unknown interaction" timeout
+  await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
+
   const target = interaction.options.getUser('target');
   const targetMember = interaction.options.getMember('target');
   const duration = parseInt(interaction.options.getString('duration'));
   const reason = interaction.options.getString('reason');
 
-  if (!targetMember) return interaction.reply({ content: "That user isn't in this wasteland, darling.", flags: [MessageFlags.Ephemeral] });
-  if (target.bot) return interaction.reply({ content: "You cannot silence a machine.", flags: [MessageFlags.Ephemeral] });
+  if (!targetMember) return interaction.editReply({ content: "That user isn't in this wasteland, darling." });
+  if (target.bot) return interaction.editReply({ content: "You cannot silence a machine." });
 
   // --- HIERARCHY CHECK ---
   const authorized = await canModerate(interaction.member, targetMember);
   if (!authorized) {
-    return await interaction.reply({ 
-      content: "You lack the authority to discipline this individual. Check your station, darling.", 
-      flags: [MessageFlags.Ephemeral] 
+    return await interaction.editReply({ 
+      content: "You lack the authority to discipline this individual. Check your station, darling." 
     });
   }
 
@@ -50,9 +52,9 @@ export async function execute(interaction) {
       duration: interaction.options.get('duration').name
     });
 
-    await interaction.reply({ content: `✅ **Case #${caseId}**: ${target.tag} has been silenced.`, flags: [MessageFlags.Ephemeral] });
+    await interaction.editReply({ content: `✅ **Case #${caseId}**: ${target.tag} has been silenced.` });
   } catch (err) {
     console.error(err);
-    await interaction.reply({ content: "I couldn't apply the timeout. Check my permissions.", flags: [MessageFlags.Ephemeral] });
+    await interaction.editReply({ content: "I couldn't apply the timeout. Check my permissions, love." });
   }
 }
