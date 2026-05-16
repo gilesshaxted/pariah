@@ -5,7 +5,10 @@ import {
   ChannelSelectMenuBuilder, 
   RoleSelectMenuBuilder, 
   ActionRowBuilder, 
-  ChannelType 
+  ChannelType,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle
 } from 'discord.js';
 import { db } from '../utils/firebase.js';
 import { getMemberLevel } from '../utils/modUtils.js';
@@ -15,6 +18,7 @@ const appId = typeof __app_id !== 'undefined' ? __app_id : 'the-pariah';
 export const name = Events.InteractionCreate;
 
 export async function execute(interaction, client) {
+  // 1. Handle Slash Commands
   if (interaction.isChatInputCommand()) {
     const command = client.commands.get(interaction.commandName);
     if (!command) return;
@@ -26,7 +30,9 @@ export async function execute(interaction, client) {
     }
   }
 
+  // 2. Handle Buttons
   if (interaction.isButton()) {
+    // --- SOCIAL CONTRACT & VERIFICATION ---
     if (interaction.customId === 'accept_rules') {
       return await interaction.reply({ 
         content: "Contract accepted. Use `/register [gamertag]` to finish.", 
@@ -34,6 +40,7 @@ export async function execute(interaction, client) {
       });
     }
 
+    // --- MODERATION SETUP DASHBOARD ---
     if (interaction.customId === 'setup_btn_channels') {
       const menu = new ChannelSelectMenuBuilder()
         .setCustomId('setup_menu_log')
@@ -74,12 +81,54 @@ export async function execute(interaction, client) {
       });
     }
 
+    // --- ECONOMY SETUP DASHBOARD ---
+    if (interaction.customId === 'eco_setup_currency') {
+      const modal = new ModalBuilder()
+        .setCustomId('eco_modal_currency')
+        .setTitle('Economy: Currency Configuration');
+
+      const nameInput = new TextInputBuilder()
+        .setCustomId('eco_input_name')
+        .setLabel("Currency Name (e.g. Scrap, Bottlecaps)")
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+      const emojiInput = new TextInputBuilder()
+        .setCustomId('eco_input_emoji')
+        .setLabel("Currency Emoji (e.g. ⚙️, 🪙)")
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(nameInput),
+        new ActionRowBuilder().addComponents(emojiInput)
+      );
+
+      return await interaction.showModal(modal);
+    }
+
+    if (interaction.customId === 'eco_setup_daily') {
+      const modal = new ModalBuilder()
+        .setCustomId('eco_modal_daily')
+        .setTitle('Economy: Daily Rewards');
+
+      const amountInput = new TextInputBuilder()
+        .setCustomId('eco_input_daily')
+        .setLabel("Amount given for /daily")
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder("e.g. 100")
+        .setRequired(true);
+
+      modal.addComponents(new ActionRowBuilder().addComponents(amountInput));
+      return await interaction.showModal(modal);
+    }
+
+    // --- LINKED ROLES: MAIN ACCOUNT SELECTION ---
     if (interaction.customId.startsWith('main_acc_')) {
       const platform = interaction.customId.split('_')[2];
       const userId = interaction.user.id;
       const member = await interaction.guild.members.fetch(userId);
 
-      // --- NICKNAME IMMUNITY CHECK ---
       const level = await getMemberLevel(member);
       if (level > 0) {
         return await interaction.reply({ 
@@ -112,6 +161,30 @@ export async function execute(interaction, client) {
     }
   }
 
+  // 3. Handle Modal Submissions
+  if (interaction.isModalSubmit()) {
+    const configRef = db.collection('artifacts').doc(appId)
+      .collection('public').doc('data')
+      .collection('economy_configs').doc(interaction.guild.id);
+
+    if (interaction.customId === 'eco_modal_currency') {
+      const name = interaction.fields.getTextInputValue('eco_input_name');
+      const emoji = interaction.fields.getTextInputValue('eco_input_emoji');
+      
+      await configRef.set({ currencyName: name, currencyEmoji: emoji }, { merge: true });
+      await interaction.reply({ content: `✅ Currency updated to **${emoji} ${name}**.`, flags: [MessageFlags.Ephemeral] });
+    }
+
+    if (interaction.customId === 'eco_modal_daily') {
+      const amount = parseInt(interaction.fields.getTextInputValue('eco_input_daily'));
+      if (isNaN(amount)) return interaction.reply({ content: "That isn't a valid number, darling.", flags: [MessageFlags.Ephemeral] });
+      
+      await configRef.set({ dailyAmount: amount }, { merge: true });
+      await interaction.reply({ content: `✅ Daily reward set to **${amount}**.`, flags: [MessageFlags.Ephemeral] });
+    }
+  }
+
+  // 4. Handle Select Menus
   if (interaction.isAnySelectMenu()) {
     const configRef = db.collection('artifacts').doc(appId)
       .collection('public').doc('data')
