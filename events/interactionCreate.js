@@ -8,7 +8,6 @@ import {
   ChannelType 
 } from 'discord.js';
 import { db } from '../utils/firebase.js';
-import { getSetupEmbed } from '../commands/moderation/setup.js';
 
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'the-pariah';
 
@@ -29,7 +28,6 @@ export async function execute(interaction, client) {
 
   // 2. Handle Buttons
   if (interaction.isButton()) {
-    // Standard Rule Acceptance
     if (interaction.customId === 'accept_rules') {
       return await interaction.reply({ 
         content: "Contract accepted. Use `/register [gamertag]` to finish.", 
@@ -37,15 +35,29 @@ export async function execute(interaction, client) {
       });
     }
 
-    // Dashboard: Channel Button
+    // Dashboard: Log Channel Button
     if (interaction.customId === 'setup_btn_channels') {
       const menu = new ChannelSelectMenuBuilder()
-        .setCustomId('setup_menu_channels')
+        .setCustomId('setup_menu_log')
         .setPlaceholder('Select the moderation log channel')
         .addChannelTypes(ChannelType.GuildText);
 
       return await interaction.reply({ 
         content: 'Select the channel where I should file my reports:', 
+        components: [new ActionRowBuilder().addComponents(menu)], 
+        flags: [MessageFlags.Ephemeral] 
+      });
+    }
+
+    // Dashboard: Welcome Channel Button
+    if (interaction.customId === 'setup_btn_welcome') {
+      const menu = new ChannelSelectMenuBuilder()
+        .setCustomId('setup_menu_welcome')
+        .setPlaceholder('Select the welcome channel')
+        .addChannelTypes(ChannelType.GuildText);
+
+      return await interaction.reply({ 
+        content: 'Select where I should greet new survivors:', 
         components: [new ActionRowBuilder().addComponents(menu)], 
         flags: [MessageFlags.Ephemeral] 
       });
@@ -67,16 +79,22 @@ export async function execute(interaction, client) {
     }
   }
 
-  // 3. Handle Select Menus (Saving to Firestore)
+  // 3. Handle Select Menus
   if (interaction.isAnySelectMenu()) {
     const configRef = db.collection('artifacts').doc(appId)
       .collection('public').doc('data')
       .collection('guild_configs').doc(interaction.guild.id);
 
-    if (interaction.customId === 'setup_menu_channels') {
+    if (interaction.customId === 'setup_menu_log') {
       const channelId = interaction.values[0];
       await configRef.set({ logChannelId: channelId }, { merge: true });
       await interaction.update({ content: `✅ Log channel updated to <#${channelId}>.`, components: [] });
+    }
+
+    if (interaction.customId === 'setup_menu_welcome') {
+      const channelId = interaction.values[0];
+      await configRef.set({ welcomeChannelId: channelId }, { merge: true });
+      await interaction.update({ content: `✅ Welcome channel updated to <#${channelId}>.`, components: [] });
     }
 
     if (interaction.customId === 'setup_menu_roles') {
