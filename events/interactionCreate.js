@@ -8,13 +8,13 @@ import {
   ChannelType 
 } from 'discord.js';
 import { db } from '../utils/firebase.js';
+import { getMemberLevel } from '../utils/modUtils.js';
 
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'the-pariah';
 
 export const name = Events.InteractionCreate;
 
 export async function execute(interaction, client) {
-  // 1. Handle Slash Commands
   if (interaction.isChatInputCommand()) {
     const command = client.commands.get(interaction.commandName);
     if (!command) return;
@@ -26,7 +26,6 @@ export async function execute(interaction, client) {
     }
   }
 
-  // 2. Handle Buttons
   if (interaction.isButton()) {
     if (interaction.customId === 'accept_rules') {
       return await interaction.reply({ 
@@ -35,7 +34,6 @@ export async function execute(interaction, client) {
       });
     }
 
-    // Dashboard: Log Channel Button
     if (interaction.customId === 'setup_btn_channels') {
       const menu = new ChannelSelectMenuBuilder()
         .setCustomId('setup_menu_log')
@@ -49,7 +47,6 @@ export async function execute(interaction, client) {
       });
     }
 
-    // Dashboard: Welcome Channel Button
     if (interaction.customId === 'setup_btn_welcome') {
       const menu = new ChannelSelectMenuBuilder()
         .setCustomId('setup_menu_welcome')
@@ -63,7 +60,6 @@ export async function execute(interaction, client) {
       });
     }
 
-    // Dashboard: Role Button
     if (interaction.customId === 'setup_btn_roles') {
       const menu = new RoleSelectMenuBuilder()
         .setCustomId('setup_menu_roles')
@@ -77,9 +73,45 @@ export async function execute(interaction, client) {
         flags: [MessageFlags.Ephemeral] 
       });
     }
+
+    if (interaction.customId.startsWith('main_acc_')) {
+      const platform = interaction.customId.split('_')[2];
+      const userId = interaction.user.id;
+      const member = await interaction.guild.members.fetch(userId);
+
+      // --- NICKNAME IMMUNITY CHECK ---
+      const level = await getMemberLevel(member);
+      if (level > 0) {
+        return await interaction.reply({ 
+          content: "You are part of the administration, darling. I wouldn't dream of forcing a name change on you.", 
+          flags: [MessageFlags.Ephemeral] 
+        });
+      }
+
+      try {
+        const playerDoc = await db.collection('pariah_players').doc(userId).get();
+        if (!playerDoc.exists) {
+          return await interaction.reply({ 
+            content: "I couldn't find your registration record. Please run `/register` first, love.", 
+            flags: [MessageFlags.Ephemeral] 
+          });
+        }
+
+        const gamertag = playerDoc.data()[`${platform}_tag`] || playerDoc.data().gamertag;
+        await member.setNickname(gamertag);
+
+        await interaction.update({ 
+          content: `✅ Perfect. I've set your server nickname to match your **${platform.toUpperCase()}** tag: \`${gamertag}\`.`, 
+          components: [] 
+        });
+
+      } catch (error) {
+        console.error('[NICKNAME ERROR]', error);
+        await interaction.reply({ content: "I encountered a shadow while changing your name.", flags: [MessageFlags.Ephemeral] });
+      }
+    }
   }
 
-  // 3. Handle Select Menus
   if (interaction.isAnySelectMenu()) {
     const configRef = db.collection('artifacts').doc(appId)
       .collection('public').doc('data')
