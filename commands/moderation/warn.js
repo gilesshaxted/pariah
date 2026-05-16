@@ -1,6 +1,6 @@
 // commands/moderation/warn.js
-import { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } from 'discord.js';
-import { logAction } from '../../utils/modUtils.js';
+import { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, MessageFlags } from 'discord.js';
+import { logAction, canModerate } from '../../utils/modUtils.js';
 
 export const data = new SlashCommandBuilder()
   .setName('warn')
@@ -11,14 +11,24 @@ export const data = new SlashCommandBuilder()
 
 export async function execute(interaction) {
   const target = interaction.options.getUser('target');
+  const targetMember = interaction.options.getMember('target');
   const reason = interaction.options.getString('reason');
 
-  if (target.bot) return interaction.reply({ content: "You cannot warn a machine, love.", ephemeral: true });
+  if (target.bot) return interaction.reply({ content: "You cannot warn a machine, love.", flags: [MessageFlags.Ephemeral] });
 
-  const caseId = await logAction({
-    guildId: interaction.guild.id,
-    targetId: target.id,
-    moderatorId: interaction.user.id,
+  // --- HIERARCHY CHECK ---
+  const authorized = await canModerate(interaction.member, targetMember);
+  if (!authorized) {
+    return await interaction.reply({ 
+      content: "You lack the authority to discipline this individual. Check your station, darling.", 
+      flags: [MessageFlags.Ephemeral] 
+    });
+  }
+
+  const caseId = await logAction(interaction.client, {
+    guild: interaction.guild,
+    target: target,
+    moderator: interaction.user,
     type: 'WARN',
     reason: reason
   });
@@ -33,7 +43,6 @@ export async function execute(interaction) {
     .setColor(0xFFCC00)
     .setTimestamp();
 
-  // Try to DM the user
   try {
     await target.send(`You have received a warning in **${interaction.guild.name}** for: ${reason}\nCase ID: ${caseId}`);
   } catch (e) {
