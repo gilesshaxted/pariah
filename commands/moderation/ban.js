@@ -15,6 +15,9 @@ export const data = new SlashCommandBuilder()
   .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers);
 
 export async function execute(interaction) {
+  // 1. Defer immediately
+  await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
+
   const target = interaction.options.getUser('target');
   const targetMember = interaction.options.getMember('target');
   const reason = interaction.options.getString('reason');
@@ -24,9 +27,8 @@ export async function execute(interaction) {
   if (targetMember) {
     const authorized = await canModerate(interaction.member, targetMember);
     if (!authorized) {
-      return await interaction.reply({ 
-        content: "You lack the authority to discipline this individual. Check your station, darling.", 
-        flags: [MessageFlags.Ephemeral] 
+      return await interaction.editReply({ 
+        content: "You lack the authority to discipline this individual. Check your station, darling." 
       });
     }
   }
@@ -42,8 +44,9 @@ export async function execute(interaction) {
       reason: reason
     });
 
-    await interaction.reply({ content: `✅ **Case #${caseId}**: ${target.tag} has been banned.`, flags: [MessageFlags.Ephemeral] });
+    await interaction.editReply({ content: `✅ **Case #${caseId}**: ${target.tag} has been banned permanently.` });
   } catch (err) {
-    await interaction.reply({ content: "I couldn't complete the ban. Perhaps they are already gone?", flags: [MessageFlags.Ephemeral] });
+    console.error(err);
+    await interaction.editReply({ content: "I couldn't complete the ban. Perhaps they are already gone?" });
   }
 }
