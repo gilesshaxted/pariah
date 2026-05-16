@@ -1,5 +1,5 @@
 // commands/register.js
-import { SlashCommandBuilder } from 'discord.js';
+import { SlashCommandBuilder, MessageFlags } from 'discord.js';
 import { db } from '../utils/firebase.js';
 
 export const data = new SlashCommandBuilder()
@@ -24,10 +24,13 @@ export async function execute(interaction) {
 
     await interaction.reply({ 
       content: `✅ **The Pariah** has acknowledged you, \`${gamertag}\`. Your registration is complete.`, 
-      ephemeral: true 
+      flags: [MessageFlags.Ephemeral] 
     });
   } catch (error) {
     console.error('[DATABASE ERROR]', error);
-    await interaction.reply({ content: "The database resisted your entry. Try again, darling.", ephemeral: true });
+    await interaction.reply({ 
+      content: "There was an error linking your account. Please try again, darling.", 
+      flags: [MessageFlags.Ephemeral] 
+    });
   }
 }
